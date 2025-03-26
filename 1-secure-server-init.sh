@@ -24,7 +24,9 @@ apt-get update -qq && apt-get install -y libpam-google-authenticator ufw fail2ba
 
 for user in root "$NEW_USER"; do
   echo "🔐 Enabling 2FA for $user..."
-  su - "$user" -c "yes y | google-authenticator -t -d -f -r 3 -R 30 -W -Q UTF8 -e 10"
+  echo "⚠️  You will now be prompted to set up Google Authenticator for $user."
+  echo "👉 Open Google Authenticator app or similar and scan the QR when prompted."
+  su - "$user" -c "google-authenticator"
 done
 
 # ─── 3. Configure PAM + SSH ─────────────────────────────────────
