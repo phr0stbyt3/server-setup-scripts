@@ -22,10 +22,14 @@ This script is the **first step** in preparing a secure Ubuntu server for hostin
 
 ---
 
-## 🚀 Usage
+## 🚀 Initial Setup
+
+After provisioning your VPS, SSH in as `root` and run:
 
 ```bash
-# Run as root after provisioning your VPS
+apt update && apt install -y git
+git clone https://github.com/phr0stbyt3/server-setup-scripts.git
+cd server-setup-scripts
 chmod +x secure-server-init.sh
 sudo ./secure-server-init.sh
 ```
