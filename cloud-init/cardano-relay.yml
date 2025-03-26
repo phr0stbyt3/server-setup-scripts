@@ -1,0 +1,42 @@
+#cloud-config
+hostname: cardano-relay
+timezone: UTC
+
+users:
+  - name: cardano
+    gecos: Cardano Relay User
+    sudo: ALL=(ALL) NOPASSWD:ALL
+    shell: /bin/bash
+    groups: users, admin, sudo
+    lock_passwd: false
+    passwd: $6$REPLACE_WITH_HASHED_PASSWORD
+    ssh-authorized-keys:
+      - ssh-rsa AAAAB3NzaC1...REPLACE_WITH_YOUR_KEY
+
+package_update: true
+package_upgrade: true
+packages:
+  - curl
+  - git
+  - ufw
+  - htop
+  - fail2ban
+  - jq
+
+runcmd:
+  - fallocate -l 4G /swapfile
+  - chmod 600 /swapfile
+  - mkswap /swapfile
+  - swapon /swapfile
+  - echo '/swapfile none swap sw 0 0' >> /etc/fstab
+
+  - su - cardano -c "git clone https://github.com/phr0stbyt3/server-setup-scripts.git ~/setup"
+
+  - su - cardano -c "bash ~/setup/1-setup_ubuntu_admin.sh"
+  - su - cardano -c "bash ~/setup/2-setup_pam_2fa_root.sh"
+  - su - cardano -c "bash ~/setup/3-setup_google_authenticator_user.sh"
+  - su - cardano -c "bash ~/setup/4-final_lockdown.sh"
+
+  - su - cardano -c "mkdir -p ~/cardano/{bin,config,db,logs,scripts}"
+
+  - su - cardano -c "curl -sL https
