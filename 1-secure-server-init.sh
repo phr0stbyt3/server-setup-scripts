@@ -1,4 +1,7 @@
 #!/bin/bash
+# secure-server-init.sh
+# Combines initial server hardening tasks into one streamlined script
+
 set -e
 
 echo "🔒 Beginning secure server initialization..."
@@ -6,10 +9,14 @@ echo "🔒 Beginning secure server initialization..."
 # ─── 1. Create hardened user ─────────────────────────────────────
 NEW_USER="ubuntu"
 
-echo "👤 Creating hardened user '$NEW_USER'..."
-useradd -m -s /bin/bash -G sudo "$NEW_USER" || echo "User already exists"
-passwd -d "$NEW_USER"
-echo "$NEW_USER ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers.d/90-hardened
+if id "$NEW_USER" &>/dev/null; then
+  echo "✅ User '$NEW_USER' already exists."
+else
+  echo "👤 Creating hardened user '$NEW_USER'..."
+  useradd -m -s /bin/bash -G sudo "$NEW_USER"
+  passwd -d "$NEW_USER"
+  echo "$NEW_USER ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/90-$NEW_USER
+fi
 
 # ─── 2. Setup Google Authenticator for root and new user ────────
 echo "🔐 Installing 2FA dependencies..."
@@ -43,6 +50,8 @@ echo "🔒 Enabling fail2ban..."
 systemctl enable --now fail2ban
 
 # ─── 6. Disable root password ───────────────────────────────────
+echo "🔒 Disabling root password..."
 passwd -l root
 
-echo "✅ Server hardening complete. You can now SSH as '$NEW_USER'."
+# ─── 7. Final Status ────────────────────────────────────────────
+echo "✅ Server hardening complete. You can now SSH as '$NEW_USER' with 2FA enabled."
