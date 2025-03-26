@@ -1,6 +1,5 @@
 #!/bin/bash
-# secure-server-init.sh
-# Combines initial server hardening tasks into one streamlined script
+# secure-server-init.sh - Secure a fresh Ubuntu VPS for Cardano relay setup
 
 set -e
 
@@ -14,8 +13,21 @@ if id "$NEW_USER" &>/dev/null; then
 else
   echo "👤 Creating hardened user '$NEW_USER'..."
   useradd -m -s /bin/bash -G sudo "$NEW_USER"
-  passwd -d "$NEW_USER"
   echo "$NEW_USER ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/90-$NEW_USER
+
+  echo "🔑 Please enter a secure password for the '$NEW_USER' user:"
+  read -s -p "Password: " user_pass
+  echo
+  read -s -p "Confirm Password: " user_pass_confirm
+  echo
+
+  if [[ "$user_pass" != "$user_pass_confirm" ]]; then
+    echo "❌ Passwords do not match. Exiting."
+    exit 1
+  fi
+
+  echo "$NEW_USER:$user_pass" | chpasswd
+  echo "✅ Password set successfully."
 fi
 
 # ─── 2. Setup Google Authenticator for root and new user ────────
@@ -24,9 +36,7 @@ apt-get update -qq && apt-get install -y libpam-google-authenticator ufw fail2ba
 
 for user in root "$NEW_USER"; do
   echo "🔐 Enabling 2FA for $user..."
-  echo "⚠️  You will now be prompted to set up Google Authenticator for $user."
-  echo "👉 Open Google Authenticator app or similar and scan the QR when prompted."
-  su - "$user" -c "google-authenticator"
+  su - "$user" -c "google-authenticator -t -d -r 3 -R 30 -W -f"
 done
 
 # ─── 3. Configure PAM + SSH ─────────────────────────────────────
