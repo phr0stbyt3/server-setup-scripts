@@ -5,7 +5,7 @@
 # It installs dependencies, downloads precompiled binaries, fetches config files,
 # installs systemd services, sets up aliases, and enables 2FA for security.
 
-set -e
+set -euo pipefail
 
 CARDANO_USER="cardano"
 CARDANO_HOME="/home/$CARDANO_USER/cardano"
@@ -16,11 +16,12 @@ LOG_DIR="$CARDANO_HOME/logs"
 SCRIPTS_DIR="$CARDANO_HOME/scripts"
 ALIASES_FILE="/home/$CARDANO_USER/.bash_cardano_aliases"
 SYSTEMD_SERVICE="/etc/systemd/system/cardano-node.service"
-REPO_URL="https://github.com/input-output-hk/cardano-node/releases/latest/download"
+CARDANO_VERSION="10.2.1"
+REPO_URL="https://github.com/IntersectMBO/cardano-node/releases/download/$CARDANO_VERSION"
 
 echo "🚀 Starting Cardano relay provisioning..."
 
-# ─── 1. Create Cardano User ───────────────────────────────────
+# ─── 1. Create Cardano User ────────────────────────────────
 if id "$CARDANO_USER" &>/dev/null; then
   echo "✅ User '$CARDANO_USER' already exists."
 else
@@ -30,14 +31,16 @@ else
   sudo passwd $CARDANO_USER
 fi
 
-# ─── 2. Install Dependencies ───────────────────────────────
-echo "📦 Installing required packages..."
-sudo apt-get update -qq && sudo apt-get install -y curl jq wget git unzip libpq-dev
+# ─── 2. Install Dependencies ───────────────────
 
-# ─── 3. Configure 2FA for Cardano User ─────────────────────────
+echo "📦 Installing required packages..."
+sudo apt-get update -qq && sudo apt-get install -y curl jq wget git unzip libpq-dev libpam-google-authenticator
+
+# ─── 3. Configure 2FA for Cardano User ──────────────────
+
 echo "🔐 Installing and configuring 2FA for '$CARDANO_USER'..."
-sudo apt-get install -y libpam-google-authenticator
-sudo -u $CARDANO_USER bash -c 'google-authenticator -t -d -f -r 3 -R 30 -W -q'
+echo "📲 Launching Google Authenticator setup for '$CARDANO_USER' (interactive)..."
+sudo -u $CARDANO_USER google-authenticator
 
 # Update SSHD for 2FA
 echo "⚙️  Updating SSHD configuration for 2FA..."
@@ -52,16 +55,20 @@ sudo systemctl restart ssh
 echo "✅ 2FA for 'cardano' configured."
 
 # ─── 4. Download and Install Cardano Binaries ─────────────────
+
 echo "🔽 Downloading Cardano binaries..."
 sudo -u $CARDANO_USER mkdir -p $BIN_DIR
 cd $BIN_DIR
-wget -q $REPO_URL/cardano-node-linux.tar.gz
-wget -q $REPO_URL/cardano-cli-linux.tar.gz
-tar -xzf cardano-node-linux.tar.gz
-tar -xzf cardano-cli-linux.tar.gz
+
+wget -q $REPO_URL/cardano-node-$CARDANO_VERSION-linux.tar.gz
+wget -q $REPO_URL/cardano-cli-$CARDANO_VERSION-linux.tar.gz
+
+tar -xzf cardano-node-$CARDANO_VERSION-linux.tar.gz
+tar -xzf cardano-cli-$CARDANO_VERSION-linux.tar.gz
 chmod +x cardano-node cardano-cli
 
-# ─── 5. Fetch Latest Configuration Files ───────────────────────
+# ─── 5. Fetch Latest Configuration Files ────────────────
+
 echo "📁 Fetching Cardano configuration files..."
 sudo -u $CARDANO_USER mkdir -p $CONFIG_DIR
 cd $CONFIG_DIR
@@ -71,7 +78,8 @@ wget -q https://book.world.dev.cardano.org/environments/mainnet/byron-genesis.js
 wget -q https://book.world.dev.cardano.org/environments/mainnet/shelley-genesis.json
 wget -q https://book.world.dev.cardano.org/environments/mainnet/alonzo-genesis.json
 
-# ─── 6. Set Up Systemd Service ────────────────────────────────
+# ─── 6. Set Up Systemd Service ─────────────────────
+
 echo "⚙️  Setting up systemd service for Cardano Node..."
 cat <<EOF | sudo tee $SYSTEMD_SERVICE
 [Unit]
@@ -97,11 +105,13 @@ EOF
 sudo systemctl daemon-reload
 sudo systemctl enable cardano-node
 
-# ─── 7. Create Log and Scripts Directories ─────────────────────
+# ─── 7. Create Log and Scripts Directories ────────────────
+
 echo "📂 Creating logs and scripts directories..."
 sudo -u $CARDANO_USER mkdir -p $LOG_DIR $SCRIPTS_DIR
 
-# ─── 8. Set Up Bash Aliases ───────────────────────────────────
+# ─── 8. Set Up Bash Aliases ───────────────
+
 echo "📜 Setting up custom bash aliases..."
 cat <<EOF | sudo -u $CARDANO_USER tee $ALIASES_FILE
 # Custom Cardano Node Commands
