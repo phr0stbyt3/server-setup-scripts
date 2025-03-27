@@ -64,9 +64,11 @@ sudo -u $CARDANO_USER tar -xzf $BINARY_TAR || {
   echo "❌ Failed to extract cardano-node binaries."; exit 1;
 }
 
-# Confirm binaries exist and are executable
-if [[ -f "$BIN_DIR/cardano-node" && -f "$BIN_DIR/cardano-cli" ]]; then
-  chmod +x cardano-node cardano-cli
+# Search for cardano-node and cardano-cli after extraction
+BIN_PATH=$(find . -type f -name "cardano-node" -o -name "cardano-cli" -exec dirname {} \; | head -n 1)
+if [[ -n "$BIN_PATH" ]]; then
+  cp "$BIN_PATH"/cardano-node "$BIN_DIR" && cp "$BIN_PATH"/cardano-cli "$BIN_DIR"
+  chmod +x "$BIN_DIR/cardano-node" "$BIN_DIR/cardano-cli"
 else
   echo "❌ cardano-node or cardano-cli not found after extraction."; exit 1;
 fi
