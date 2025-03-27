@@ -1,9 +1,11 @@
-#!/bin/bash
-set -e
+# relay-provisioning-init.sh
 
-# ─────────────────────────────────────────────────────────────
-# 💡 Cardano Relay Provisioning Script
-# ─────────────────────────────────────────────────────────────
+# 🚧 Relay Provisioning Script
+# This script sets up the Cardano relay node and provisions the 'cardano' user.
+# It installs dependencies, downloads precompiled binaries, fetches config files,
+# installs systemd services, sets up aliases, and enables 2FA for security.
+
+set -e
 
 CARDANO_USER="cardano"
 CARDANO_HOME="/home/$CARDANO_USER/cardano"
@@ -14,76 +16,76 @@ LOG_DIR="$CARDANO_HOME/logs"
 SCRIPTS_DIR="$CARDANO_HOME/scripts"
 ALIASES_FILE="/home/$CARDANO_USER/.bash_cardano_aliases"
 SYSTEMD_SERVICE="/etc/systemd/system/cardano-node.service"
+REPO_URL="https://github.com/input-output-hk/cardano-node/releases/latest/download"
 
-echo "🔧 Starting Cardano relay provisioning..."
+echo "🚀 Starting Cardano relay provisioning..."
 
-# ─── 1. Create Cardano User ──────────────────────────────────
-if ! id "$CARDANO_USER" &>/dev/null; then
-  echo "👤 Creating '$CARDANO_USER' user..."
-  useradd -m -s /bin/bash -G sudo "$CARDANO_USER"
-  passwd -d "$CARDANO_USER"
-  echo "$CARDANO_USER ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers.d/90-cardano
-else
+# ─── 1. Create Cardano User ───────────────────────────────────
+if id "$CARDANO_USER" &>/dev/null; then
   echo "✅ User '$CARDANO_USER' already exists."
+else
+  echo "👤 Creating user '$CARDANO_USER'..."
+  sudo adduser --disabled-password --gecos "" $CARDANO_USER
+  echo "🔑 Please set a password for the '$CARDANO_USER' user:"
+  sudo passwd $CARDANO_USER
 fi
 
-# ─── 2. Install 2FA ──────────────────────────────────────────
-echo "🔐 Installing 2FA (Google Authenticator)..."
-apt-get update -qq && apt-get install -y libpam-google-authenticator
+# ─── 2. Install Dependencies ───────────────────────────────
+echo "📦 Installing required packages..."
+sudo apt-get update -qq && sudo apt-get install -y curl jq wget git unzip libpq-dev
 
-su - "$CARDANO_USER" -c "
-  yes y | google-authenticator -t -d -f -r 3 -R 30 -W -Q UTF8 -e 10
-"
+# ─── 3. Configure 2FA for Cardano User ─────────────────────────
+echo "🔐 Installing and configuring 2FA for '$CARDANO_USER'..."
+sudo apt-get install -y libpam-google-authenticator
+sudo -u $CARDANO_USER bash -c 'google-authenticator -t -d -f -r 3 -R 30 -W -q'
 
-if ! grep -q "pam_google_authenticator.so" /etc/pam.d/sshd; then
-  echo "auth required pam_google_authenticator.so nullok" >> /etc/pam.d/sshd
+# Update SSHD for 2FA
+echo "⚙️  Updating SSHD configuration for 2FA..."
+PAM_LINE='auth required pam_google_authenticator.so'
+if ! grep -q "$PAM_LINE" /etc/pam.d/sshd; then
+  echo "$PAM_LINE" | sudo tee -a /etc/pam.d/sshd
 fi
-sed -i 's/^#\?ChallengeResponseAuthentication.*/ChallengeResponseAuthentication yes/' /etc/ssh/sshd_config
-systemctl restart ssh
 
-# ─── 3. Create Folder Structure ──────────────────────────────
-echo "📁 Creating directory structure..."
-runuser -l "$CARDANO_USER" -c "mkdir -p $BIN_DIR $CONFIG_DIR $DB_DIR $LOG_DIR $SCRIPTS_DIR"
+sudo sed -i 's/^#\?ChallengeResponseAuthentication.*/ChallengeResponseAuthentication yes/' /etc/ssh/sshd_config
+sudo systemctl restart ssh
 
-# ─── 4. Download Latest Cardano Binaries ─────────────────────
-echo "⬇️  Downloading latest Cardano binaries..."
-LATEST_URL=$(curl -s https://api.github.com/repos/IntersectMBO/cardano-node/releases/latest \
-  | grep browser_download_url \
-  | grep 'linux.*64.*tar.gz' \
-  | cut -d '"' -f 4)
+echo "✅ 2FA for 'cardano' configured."
 
-FILENAME=$(basename "$LATEST_URL")
+# ─── 4. Download and Install Cardano Binaries ─────────────────
+echo "🔽 Downloading Cardano binaries..."
+sudo -u $CARDANO_USER mkdir -p $BIN_DIR
+cd $BIN_DIR
+wget -q $REPO_URL/cardano-node-linux.tar.gz
+wget -q $REPO_URL/cardano-cli-linux.tar.gz
+tar -xzf cardano-node-linux.tar.gz
+tar -xzf cardano-cli-linux.tar.gz
+chmod +x cardano-node cardano-cli
 
-runuser -l "$CARDANO_USER" -c "
-  curl -L $LATEST_URL -o ~/cardano/$FILENAME &&
-  tar -xzf ~/cardano/$FILENAME -C $BIN_DIR &&
-  rm ~/cardano/$FILENAME
-"
+# ─── 5. Fetch Latest Configuration Files ───────────────────────
+echo "📁 Fetching Cardano configuration files..."
+sudo -u $CARDANO_USER mkdir -p $CONFIG_DIR
+cd $CONFIG_DIR
+wget -q https://book.world.dev.cardano.org/environments/mainnet/config.json
+wget -q https://book.world.dev.cardano.org/environments/mainnet/topology.json
+wget -q https://book.world.dev.cardano.org/environments/mainnet/byron-genesis.json
+wget -q https://book.world.dev.cardano.org/environments/mainnet/shelley-genesis.json
+wget -q https://book.world.dev.cardano.org/environments/mainnet/alonzo-genesis.json
 
-# ─── 5. Download Mainnet Config Files ────────────────────────
-echo "📦 Fetching mainnet config files..."
-CONFIG_BASE="https://book.world.dev.cardano.org/environments/mainnet"
-CONFIG_FILES=(config.json topology.json alonzo-genesis.json byron-genesis.json shelley-genesis.json conway-genesis.json)
-
-for file in "${CONFIG_FILES[@]}"; do
-  curl -sL "$CONFIG_BASE/$file" -o "$CONFIG_DIR/$file"
-done
-
-# ─── 6. Setup Systemd Service ────────────────────────────────
-echo "⚙️  Installing systemd service..."
-cat <<EOF > "$SYSTEMD_SERVICE"
+# ─── 6. Set Up Systemd Service ────────────────────────────────
+echo "⚙️  Setting up systemd service for Cardano Node..."
+cat <<EOF | sudo tee $SYSTEMD_SERVICE
 [Unit]
 Description=Cardano Node
 After=network.target
 
 [Service]
 User=$CARDANO_USER
-ExecStart=$BIN_DIR/cardano-node run \\
-  --topology $CONFIG_DIR/topology.json \\
-  --database-path $DB_DIR \\
-  --socket-path $DB_DIR/node.socket \\
-  --host-addr 0.0.0.0 \\
-  --port 3001 \\
+ExecStart=$BIN_DIR/cardano-node run \
+  --topology $CONFIG_DIR/topology.json \
+  --database-path $DB_DIR \
+  --socket-path $DB_DIR/node.socket \
+  --host-addr 0.0.0.0 \
+  --port 3001 \
   --config $CONFIG_DIR/config.json
 Restart=always
 LimitNOFILE=1048576
@@ -92,30 +94,23 @@ LimitNOFILE=1048576
 WantedBy=multi-user.target
 EOF
 
-systemctl daemon-reexec
-systemctl daemon-reload
-systemctl enable cardano-node
-systemctl restart cardano-node
+sudo systemctl daemon-reload
+sudo systemctl enable cardano-node
 
-# ─── 7. Register Aliases ─────────────────────────────────────
-echo "📚 Adding helpful CLI aliases..."
-cat <<'EOF' > "$ALIASES_FILE"
-# Custom Cardano Node Aliases
+# ─── 7. Create Log and Scripts Directories ─────────────────────
+echo "📂 Creating logs and scripts directories..."
+sudo -u $CARDANO_USER mkdir -p $LOG_DIR $SCRIPTS_DIR
+
+# ─── 8. Set Up Bash Aliases ───────────────────────────────────
+echo "📜 Setting up custom bash aliases..."
+cat <<EOF | sudo -u $CARDANO_USER tee $ALIASES_FILE
+# Custom Cardano Node Commands
 alias node-sync='cardano-cli query tip --mainnet'
 alias node-status='systemctl status cardano-node'
 alias node-logs='journalctl -u cardano-node -f'
 alias node-logs-recent='journalctl -u cardano-node --no-pager -n 100'
-alias node-start='sudo systemctl start cardano-node'
-alias node-stop='sudo systemctl stop cardano-node'
-node-restart() {
-    read -p "Are you sure you want to RESTART the Cardano node? (yes/no): " confirm
-    [[ "$confirm" == "yes" ]] && sudo systemctl restart cardano-node
-}
-export -f node-restart
 EOF
 
-echo "source ~/.bash_cardano_aliases" >> "/home/$CARDANO_USER/.bashrc"
-chown "$CARDANO_USER":"$CARDANO_USER" "$ALIASES_FILE"
+echo "✅ Relay provisioning complete. Reboot and check node status."
 
-# ─── 8. Final Message ────────────────────────────────────────
-echo "✅ Provisioning complete! Login as '$CARDANO_USER' and run: oobe-init.sh"
+exit 0
