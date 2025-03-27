@@ -60,17 +60,15 @@ wget -qO $BINARY_TAR $REPO_URL/$BINARY_TAR || {
   echo "❌ Failed to download cardano-node binary."; exit 1;
 }
 
-sudo -u $CARDANO_USER tar -xzf $BINARY_TAR || {
+TEMP_DIR=$(mktemp -d)
+tar -xzf $BINARY_TAR -C $TEMP_DIR || {
   echo "❌ Failed to extract cardano-node binaries."; exit 1;
 }
 
-BIN_PATH=$(find . -type f -name "cardano-node" -o -name "cardano-cli" -exec dirname {} \; | head -n 1)
-if [[ -n "$BIN_PATH" ]]; then
-  cp "$BIN_PATH"/cardano-node "$BIN_DIR" && cp "$BIN_PATH"/cardano-cli "$BIN_DIR"
-  chmod +x "$BIN_DIR/cardano-node" "$BIN_DIR/cardano-cli"
-else
-  echo "❌ cardano-node or cardano-cli not found after extraction."; exit 1;
-fi
+cp "$TEMP_DIR/bin/cardano-node" "$BIN_DIR"
+cp "$TEMP_DIR/bin/cardano-cli" "$BIN_DIR"
+chmod +x "$BIN_DIR/cardano-node" "$BIN_DIR/cardano-cli"
+rm -rf "$TEMP_DIR" "$BINARY_TAR"
 
 # ─── 5. Fetch Latest Configuration Files ──────────────
 
