@@ -23,7 +23,7 @@ REPO_URL="https://github.com/IntersectMBO/cardano-node/releases/download/$CARDAN
 
 echo "🚀 Starting Cardano relay provisioning..."
 
-# ─── 1. Create Cardano User ────────────────────────────────
+# ─── 1. Create Cardano User ──────────────────────────────
 if id "$CARDANO_USER" &>/dev/null; then
   echo "✅ User '$CARDANO_USER' already exists."
 else
@@ -33,37 +33,45 @@ else
   sudo passwd $CARDANO_USER
 fi
 
-# ─── 2. Install Dependencies ──────────────
+# ─── 2. Install Dependencies ────────────────
 
 echo "📦 Installing required packages..."
 sudo apt-get update -qq && sudo apt-get install -y curl jq wget git unzip libpq-dev libpam-google-authenticator
 
-# ─── 3. Enable 2FA for Cardano User ─────────
+# ─── 3. Enable 2FA for Cardano User ──────────────
 
-echo "🔐 Enabling 2FA for '$CARDANO_USER'..."
-sudo -u $CARDANO_USER bash -c 'google-authenticator'
+# (Commented out since 2FA has already been configured)
+# echo "🔐 Enabling 2FA for '$CARDANO_USER'..."
+# sudo -u $CARDANO_USER bash -c 'google-authenticator -t -d -f -r 3 -R 30 -W'
+# if ! grep -q "auth required pam_google_authenticator.so" /etc/pam.d/sshd; then
+#   echo "auth required pam_google_authenticator.so nullok" | sudo tee -a /etc/pam.d/sshd
+# fi
+# sudo sed -i 's/^#\?ChallengeResponseAuthentication.*/ChallengeResponseAuthentication yes/' /etc/ssh/sshd_config
+# sudo systemctl restart sshd
 
-if ! grep -q "auth required pam_google_authenticator.so" /etc/pam.d/sshd; then
-  echo "auth required pam_google_authenticator.so nullok" | sudo tee -a /etc/pam.d/sshd
-fi
-sudo sed -i 's/^#\?ChallengeResponseAuthentication.*/ChallengeResponseAuthentication yes/' /etc/ssh/sshd_config
-sudo systemctl restart sshd
+# ─── 4. Download and Install Cardano Binaries ──────────────────────
 
-# ─── 4. Download and Install Cardano Binaries ────────────
-
-echo "🔽 Downloading and extracting Cardano binaries..."
+echo "🗜️ Downloading and extracting Cardano binaries..."
 sudo -u $CARDANO_USER mkdir -p $BIN_DIR
 cd $BIN_DIR
 
-wget -qO cardano-node.tar.gz $REPO_URL/cardano-node-$CARDANO_VERSION-linux.tar.gz || {
+BINARY_TAR="cardano-node-$CARDANO_VERSION-linux.tar.gz"
+wget -qO $BINARY_TAR $REPO_URL/$BINARY_TAR || {
   echo "❌ Failed to download cardano-node binary."; exit 1;
 }
 
-# Extracting binaries
-sudo -u $CARDANO_USER tar -xzf cardano-node.tar.gz --strip-components=1
-chmod +x cardano-node cardano-cli || true
+sudo -u $CARDANO_USER tar -xzf $BINARY_TAR || {
+  echo "❌ Failed to extract cardano-node binaries."; exit 1;
+}
 
-# ─── 5. Fetch Latest Configuration Files ─────────
+# Confirm binaries exist and are executable
+if [[ -f "$BIN_DIR/cardano-node" && -f "$BIN_DIR/cardano-cli" ]]; then
+  chmod +x cardano-node cardano-cli
+else
+  echo "❌ cardano-node or cardano-cli not found after extraction."; exit 1;
+fi
+
+# ─── 5. Fetch Latest Configuration Files ──────────────
 
 echo "📁 Fetching Cardano configuration files..."
 sudo -u $CARDANO_USER mkdir -p $CONFIG_DIR
@@ -76,7 +84,7 @@ wget -q https://book.world.dev.cardano.org/environments/mainnet/shelley-genesis.
 wget -q https://book.world.dev.cardano.org/environments/mainnet/alonzo-genesis.json
 wget -q https://book.world.dev.cardano.org/environments/mainnet/conway-genesis.json
 
-# ─── 6. Set Up Systemd Service ──────────────
+# ─── 6. Set Up Systemd Service ───────────────────
 
 echo "⚙️  Setting up systemd service for Cardano Node..."
 cat <<EOF | sudo tee $SYSTEMD_SERVICE
@@ -103,7 +111,7 @@ EOF
 sudo systemctl daemon-reload
 sudo systemctl enable cardano-node
 
-# ─── 7. Create Log and Scripts Directories ─────────
+# ─── 7. Create Log and Scripts Directories ───────────────
 
 echo "📂 Creating logs and scripts directories..."
 sudo -u $CARDANO_USER mkdir -p $LOG_DIR $SCRIPTS_DIR
@@ -153,7 +161,7 @@ alias node-start='systemctl start cardano-node'
 
 # Node diagnostic utility
 node-diag() {
-    echo "🩺 Cardano Relay Diagnostic Script"
+    echo "🧼 Cardano Relay Diagnostic Script"
     echo "----------------------------------"
     echo ""
     echo "🔍 Checking if cardano-node is running..."
@@ -182,7 +190,7 @@ node-diag() {
     fi
     echo ""
     echo "🔍 Checking CARDANO_NODE_SOCKET_PATH environment variable..."
-    echo "CARDANO_NODE_SOCKET_PATH=\$CARDANO_NODE_SOCKET_PATH"
+    echo "CARDANO_NODE_SOCKET_PATH=$CARDANO_HOME/db/node.socket"
     echo ""
     echo "✅ Diagnostic complete."
 }
@@ -191,6 +199,13 @@ export -f node-restart
 export -f node-stop
 export -f node-diag
 EOF
+
+# Add source line to .bashrc if not already present
+BASHRC="/home/$CARDANO_USER/.bashrc"
+SOURCE_LINE="[[ -f \"$ALIASES_FILE\" ]] && source \"$ALIASES_FILE\""
+if ! sudo -u $CARDANO_USER grep -Fxq "$SOURCE_LINE" "$BASHRC"; then
+  echo "$SOURCE_LINE" | sudo -u $CARDANO_USER tee -a "$BASHRC"
+fi
 
 echo "✅ Relay provisioning complete. Reboot and check node status."
 
