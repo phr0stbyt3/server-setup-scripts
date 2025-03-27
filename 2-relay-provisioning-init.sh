@@ -211,6 +211,11 @@ ALIASES
 
 chown $CARDANO_USER:$CARDANO_USER $ALIASES_FILE
 
+# ─── 8. OPTIONAL: Enable 2FA for cardano user (uncomment to use) ──────────
+
+# echo "🔐 Enabling 2FA for cardano user..."
+# sudo -u $CARDANO_USER google-authenticator -t -d -f -r 3 -R 30 -W
+
 # ✅ Relay provisioning complete. Reboot and check node status.
 
 exit 0
