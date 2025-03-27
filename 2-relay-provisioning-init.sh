@@ -23,7 +23,7 @@ REPO_URL="https://github.com/IntersectMBO/cardano-node/releases/download/$CARDAN
 
 echo "🚀 Starting Cardano relay provisioning..."
 
-# ─── 1. Create Cardano User ──────────────────────────────
+# ─── 1. Create Cardano User ──────────────────────────
 if id "$CARDANO_USER" &>/dev/null; then
   echo "✅ User '$CARDANO_USER' already exists."
 else
@@ -33,25 +33,26 @@ else
   sudo passwd $CARDANO_USER
 fi
 
-# ─── 2. Install Dependencies ────────────────
+# ─── 2. Install Dependencies ──────────────
 
 echo "📦 Installing required packages..."
 sudo apt-get update -qq && sudo apt-get install -y curl jq wget git unzip libpq-dev libpam-google-authenticator
 
-# ─── 3. Enable 2FA for Cardano User ──────────────
+# ─── 3. Enable Swap File ─────────────
+if ! grep -q swapfile /etc/fstab; then
+  echo "💾 Creating swap file..."
+  sudo fallocate -l 4G /swapfile
+  sudo chmod 600 /swapfile
+  sudo mkswap /swapfile
+  sudo swapon /swapfile
+  echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab
+else
+  echo "✅ Swap file already configured."
+fi
 
-# (Commented out since 2FA has already been configured)
-# echo "🔐 Enabling 2FA for '$CARDANO_USER'..."
-# sudo -u $CARDANO_USER bash -c 'google-authenticator -t -d -f -r 3 -R 30 -W'
-# if ! grep -q "auth required pam_google_authenticator.so" /etc/pam.d/sshd; then
-#   echo "auth required pam_google_authenticator.so nullok" | sudo tee -a /etc/pam.d/sshd
-# fi
-# sudo sed -i 's/^#\?ChallengeResponseAuthentication.*/ChallengeResponseAuthentication yes/' /etc/ssh/sshd_config
-# sudo systemctl restart sshd
+# ─── 4. Download and Install Cardano Binaries ───────────────
 
-# ─── 4. Download and Install Cardano Binaries ──────────────────────
-
-echo "🗜️ Downloading and extracting Cardano binaries..."
+echo "🗼️ Downloading and extracting Cardano binaries..."
 sudo -u $CARDANO_USER mkdir -p $BIN_DIR
 cd $BIN_DIR
 
@@ -70,7 +71,14 @@ cp "$TEMP_DIR/bin/cardano-cli" "$BIN_DIR"
 chmod +x "$BIN_DIR/cardano-node" "$BIN_DIR/cardano-cli"
 rm -rf "$TEMP_DIR" "$BINARY_TAR"
 
-# ─── 5. Fetch Latest Configuration Files ──────────────
+# Add binaries to global path
+if ! grep -q "$BIN_DIR" /etc/profile; then
+  echo "🔗 Adding Cardano bin directory to system-wide PATH..."
+  echo "export PATH=\"$BIN_DIR:\$PATH\"" | sudo tee -a /etc/profile
+  export PATH="$BIN_DIR:$PATH"
+fi
+
+# ─── 5. Fetch Latest Configuration Files ────────
 
 echo "📁 Fetching Cardano configuration files..."
 sudo -u $CARDANO_USER mkdir -p $CONFIG_DIR
@@ -83,10 +91,13 @@ wget -q https://book.world.dev.cardano.org/environments/mainnet/shelley-genesis.
 wget -q https://book.world.dev.cardano.org/environments/mainnet/alonzo-genesis.json
 wget -q https://book.world.dev.cardano.org/environments/mainnet/conway-genesis.json
 
-# ─── 6. Set Up Systemd Service ───────────────────
+# ─── 5b. Ensure aliases sourced in .bashrc ──────────
+ALIAS_SOURCE="source $ALIASES_FILE"
+grep -qxF "$ALIAS_SOURCE" /home/$CARDANO_USER/.bashrc || echo "$ALIAS_SOURCE" | sudo tee -a /home/$CARDANO_USER/.bashrc
 
+# ─── 6. Setup Cardano Node Systemd Service ───────────
 echo "⚙️  Setting up systemd service for Cardano Node..."
-cat <<EOF | sudo tee $SYSTEMD_SERVICE >/dev/null
+sudo tee $SYSTEMD_SERVICE > /dev/null <<EOF
 [Unit]
 Description=Cardano Node
 After=network.target
@@ -111,15 +122,13 @@ sudo systemctl daemon-reexec
 sudo systemctl daemon-reload
 sudo systemctl enable cardano-node
 
-# ─── 7. Create Log and Scripts Directories ───────────────
+# ─── 7. Setup Directories and Aliases ──────────
 
 echo "📂 Creating logs and scripts directories..."
-sudo -u $CARDANO_USER mkdir -p $LOG_DIR $SCRIPTS_DIR $DB_DIR
-
-# ─── 8. Set Up Bash Aliases ──────────────
+sudo -u $CARDANO_USER mkdir -p $LOG_DIR $SCRIPTS_DIR
 
 echo "📜 Setting up custom bash aliases..."
-cat <<EOF | sudo tee -a $ALIASES_FILE >/dev/null
+sudo tee $ALIASES_FILE > /dev/null <<'ALIASES'
 # Custom Cardano Node Commands
 
 # Check node sync progress
@@ -136,70 +145,72 @@ alias node-logs-recent='journalctl -u cardano-node --no-pager -n 100'
 
 # Restart Cardano node
 node-restart() {
-    read -p "Are you sure you want to RESTART the Cardano node? (yes/no): " confirm
-    if [[ "\$confirm" == "yes" ]]; then
-        systemctl restart cardano-node
-        echo "🔄 Cardano node is restarting..."
-    else
-        echo "❌ Operation canceled."
-    fi
+  read -p "Are you sure you want to RESTART the Cardano node? (yes/no): " confirm
+  if [[ "$confirm" == "yes" ]]; then
+    sudo systemctl restart cardano-node
+    echo "🔄 Cardano node is restarting..."
+  else
+    echo "❌ Operation canceled."
+  fi
 }
 
 # Stop Cardano node
 node-stop() {
-    read -p "Are you sure you want to STOP the Cardano node? (yes/no): " confirm
-    if [[ "\$confirm" == "yes" ]]; then
-        systemctl stop cardano-node
-        echo "✅ Cardano node has been stopped."
-    else
-        echo "❌ Operation canceled."
-    fi
+  read -p "Are you sure you want to STOP the Cardano node? (yes/no): " confirm
+  if [[ "$confirm" == "yes" ]]; then
+    sudo systemctl stop cardano-node
+    echo "✅ Cardano node has been stopped."
+  else
+    echo "❌ Operation canceled."
+  fi
 }
 
 # Start Cardano node
-alias node-start='systemctl start cardano-node'
+alias node-start='sudo systemctl start cardano-node'
 
 # Node diagnostic utility
 node-diag() {
-    echo "🩺 Cardano Relay Diagnostic Script"
-    echo "----------------------------------"
-    echo ""
-    echo "🔍 Checking if cardano-node is running..."
-    if pgrep -x "cardano-node" > /dev/null; then
-        echo "✅ cardano-node process is running."
-    else
-        echo "❌ cardano-node process is NOT running."
-    fi
-    echo ""
-    echo "🔍 Checking systemd service: cardano-node"
-    systemctl status cardano-node --no-pager | head -20
-    echo ""
-    echo "🔍 Checking for node socket at:"
-    echo "\$CARDANO_HOME/db/node.socket"
-    if [ -S "\$CARDANO_HOME/db/node.socket" ]; then
-        echo "✅ Socket file exists."
-    else
-        echo "❌ Socket file not found. Either node hasn't finished booting or path is wrong."
-    fi
-    echo ""
-    echo "🔍 Checking if port 3001 is bound..."
-    if sudo ss -tuln | grep -q ':3001'; then
-        echo "✅ Port 3001 is open and accepting connections."
-    else
-        echo "❌ Port 3001 is NOT open. Relay may not be accepting connections."
-    fi
-    echo ""
-    echo "🔍 Checking CARDANO_NODE_SOCKET_PATH environment variable..."
-    echo "CARDANO_NODE_SOCKET_PATH=\$CARDANO_NODE_SOCKET_PATH"
-    echo ""
-    echo "✅ Diagnostic complete."
+  echo "🩺 Cardano Relay Diagnostic Script"
+  echo "----------------------------------"
+  echo ""
+  echo "🔍 Checking if cardano-node is running..."
+  if pgrep -x "cardano-node" > /dev/null; then
+    echo "✅ cardano-node process is running."
+  else
+    echo "❌ cardano-node process is NOT running."
+  fi
+  echo ""
+  echo "🔍 Checking systemd service: cardano-node"
+  systemctl status cardano-node --no-pager | head -20
+  echo ""
+  echo "🔍 Checking for node socket at:"
+  echo "$CARDANO_HOME/db/node.socket"
+  if [ -S "$CARDANO_HOME/db/node.socket" ]; then
+    echo "✅ Socket file exists."
+  else
+    echo "❌ Socket file not found. Either node hasn't finished booting or path is wrong."
+  fi
+  echo ""
+  echo "🔍 Checking if port 3001 is bound..."
+  if sudo ss -tuln | grep -q ':3001'; then
+    echo "✅ Port 3001 is open and accepting connections."
+  else
+    echo "❌ Port 3001 is NOT open. Relay may not be accepting connections."
+  fi
+  echo ""
+  echo "🔍 Checking CARDANO_NODE_SOCKET_PATH environment variable..."
+  echo "CARDANO_NODE_SOCKET_PATH=\$CARDANO_NODE_SOCKET_PATH"
+  echo ""
+  echo "✅ Diagnostic complete."
 }
 
 export -f node-restart
 export -f node-stop
 export -f node-diag
-EOF
+ALIASES
 
-echo "✅ Relay provisioning complete. Reboot and check node status."
+chown $CARDANO_USER:$CARDANO_USER $ALIASES_FILE
+
+# ✅ Relay provisioning complete. Reboot and check node status.
 
 exit 0
