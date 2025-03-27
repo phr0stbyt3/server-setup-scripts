@@ -27,8 +27,7 @@ This script is the **first step** in preparing a secure Ubuntu server for hostin
 After provisioning your VPS, SSH in as `root` and run:
 
 ```bash
-apt update && apt upgrade
-apt install git
+apt update && apt install -y git
 git clone https://github.com/phr0stbyt3/server-setup-scripts.git
 cd server-setup-scripts
 chmod +x secure-server-init.sh
