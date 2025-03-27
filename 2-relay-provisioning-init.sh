@@ -64,7 +64,6 @@ sudo -u $CARDANO_USER tar -xzf $BINARY_TAR || {
   echo "❌ Failed to extract cardano-node binaries."; exit 1;
 }
 
-# Search for cardano-node and cardano-cli after extraction
 BIN_PATH=$(find . -type f -name "cardano-node" -o -name "cardano-cli" -exec dirname {} \; | head -n 1)
 if [[ -n "$BIN_PATH" ]]; then
   cp "$BIN_PATH"/cardano-node "$BIN_DIR" && cp "$BIN_PATH"/cardano-cli "$BIN_DIR"
@@ -89,7 +88,7 @@ wget -q https://book.world.dev.cardano.org/environments/mainnet/conway-genesis.j
 # ─── 6. Set Up Systemd Service ───────────────────
 
 echo "⚙️  Setting up systemd service for Cardano Node..."
-cat <<EOF | sudo tee $SYSTEMD_SERVICE
+cat <<EOF | sudo tee $SYSTEMD_SERVICE >/dev/null
 [Unit]
 Description=Cardano Node
 After=network.target
@@ -110,18 +109,19 @@ LimitNOFILE=1048576
 WantedBy=multi-user.target
 EOF
 
+sudo systemctl daemon-reexec
 sudo systemctl daemon-reload
 sudo systemctl enable cardano-node
 
 # ─── 7. Create Log and Scripts Directories ───────────────
 
 echo "📂 Creating logs and scripts directories..."
-sudo -u $CARDANO_USER mkdir -p $LOG_DIR $SCRIPTS_DIR
+sudo -u $CARDANO_USER mkdir -p $LOG_DIR $SCRIPTS_DIR $DB_DIR
 
 # ─── 8. Set Up Bash Aliases ──────────────
 
 echo "📜 Setting up custom bash aliases..."
-cat <<'EOF' | sudo -u $CARDANO_USER tee $ALIASES_FILE
+cat <<EOF | sudo tee -a $ALIASES_FILE >/dev/null
 # Custom Cardano Node Commands
 
 # Check node sync progress
@@ -139,7 +139,7 @@ alias node-logs-recent='journalctl -u cardano-node --no-pager -n 100'
 # Restart Cardano node
 node-restart() {
     read -p "Are you sure you want to RESTART the Cardano node? (yes/no): " confirm
-    if [[ "$confirm" == "yes" ]]; then
+    if [[ "\$confirm" == "yes" ]]; then
         systemctl restart cardano-node
         echo "🔄 Cardano node is restarting..."
     else
@@ -150,7 +150,7 @@ node-restart() {
 # Stop Cardano node
 node-stop() {
     read -p "Are you sure you want to STOP the Cardano node? (yes/no): " confirm
-    if [[ "$confirm" == "yes" ]]; then
+    if [[ "\$confirm" == "yes" ]]; then
         systemctl stop cardano-node
         echo "✅ Cardano node has been stopped."
     else
@@ -163,7 +163,7 @@ alias node-start='systemctl start cardano-node'
 
 # Node diagnostic utility
 node-diag() {
-    echo "🧼 Cardano Relay Diagnostic Script"
+    echo "🩺 Cardano Relay Diagnostic Script"
     echo "----------------------------------"
     echo ""
     echo "🔍 Checking if cardano-node is running..."
@@ -177,8 +177,8 @@ node-diag() {
     systemctl status cardano-node --no-pager | head -20
     echo ""
     echo "🔍 Checking for node socket at:"
-    echo "$CARDANO_HOME/db/node.socket"
-    if [ -S "$CARDANO_HOME/db/node.socket" ]; then
+    echo "\$CARDANO_HOME/db/node.socket"
+    if [ -S "\$CARDANO_HOME/db/node.socket" ]; then
         echo "✅ Socket file exists."
     else
         echo "❌ Socket file not found. Either node hasn't finished booting or path is wrong."
@@ -192,7 +192,7 @@ node-diag() {
     fi
     echo ""
     echo "🔍 Checking CARDANO_NODE_SOCKET_PATH environment variable..."
-    echo "CARDANO_NODE_SOCKET_PATH=$CARDANO_HOME/db/node.socket"
+    echo "CARDANO_NODE_SOCKET_PATH=\$CARDANO_NODE_SOCKET_PATH"
     echo ""
     echo "✅ Diagnostic complete."
 }
@@ -201,13 +201,6 @@ export -f node-restart
 export -f node-stop
 export -f node-diag
 EOF
-
-# Add source line to .bashrc if not already present
-BASHRC="/home/$CARDANO_USER/.bashrc"
-SOURCE_LINE="[[ -f \"$ALIASES_FILE\" ]] && source \"$ALIASES_FILE\""
-if ! sudo -u $CARDANO_USER grep -Fxq "$SOURCE_LINE" "$BASHRC"; then
-  echo "$SOURCE_LINE" | sudo -u $CARDANO_USER tee -a "$BASHRC"
-fi
 
 echo "✅ Relay provisioning complete. Reboot and check node status."
 
